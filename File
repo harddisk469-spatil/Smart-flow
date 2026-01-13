@@ -1,0 +1,8 @@
+SmartFlow/
+└── app/
+    └── src/
+        └── main/
+            ├── java/com/smartflow/app/
+            │   └── SmartFlowAllInOne.kt
+            ├── res/xml/accessibility_config.xml
+            └── AndroidManifest.xml
