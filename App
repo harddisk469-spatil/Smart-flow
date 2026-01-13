@@ -1,0 +1,224 @@
+package com.smartflow.app
+
+import android.accessibilityservice.AccessibilityService
+import android.bluetooth.BluetoothAdapter
+import android.content.Context
+import android.content.Intent
+import android.media.AudioManager
+import android.net.wifi.WifiManager
+import android.os.Bundle
+import android.provider.Settings
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+
+/* -------------------- DATA MODELS -------------------- */
+
+enum class BlockType {
+    WIFI_ON,
+    WIFI_OFF,
+    BLUETOOTH_ON,
+    BLUETOOTH_OFF,
+    VOLUME_SET,
+    OPEN_APP,
+    DELAY,
+    AUTO_CLICK
+}
+
+data class Block(
+    val type: BlockType,
+    val value: String? = null
+)
+
+data class Flow(
+    val name: String,
+    val blocks: List<Block>
+)
+
+/* -------------------- AUTOMATION ENGINE -------------------- */
+
+object AutomationEngine {
+    fun run(context: Context, flow: Flow) {
+        flow.blocks.forEach { ActionExecutor.execute(context, it) }
+    }
+}
+
+/* -------------------- ACTION EXECUTOR -------------------- */
+
+object ActionExecutor {
+
+    fun execute(context: Context, block: Block) {
+        when (block.type) {
+
+            BlockType.WIFI_ON -> {
+                val wifi = context.applicationContext
+                    .getSystemService(Context.WIFI_SERVICE) as WifiManager
+                wifi.isWifiEnabled = true
+            }
+
+            BlockType.WIFI_OFF -> {
+                val wifi = context.applicationContext
+                    .getSystemService(Context.WIFI_SERVICE) as WifiManager
+                wifi.isWifiEnabled = false
+            }
+
+            BlockType.BLUETOOTH_ON ->
+                BluetoothAdapter.getDefaultAdapter()?.enable()
+
+            BlockType.BLUETOOTH_OFF ->
+                BluetoothAdapter.getDefaultAdapter()?.disable()
+
+            BlockType.VOLUME_SET -> {
+                val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                audio.setStreamVolume(
+                    AudioManager.STREAM_MUSIC,
+                    block.value?.toInt() ?: 5,
+                    0
+                )
+            }
+
+            BlockType.OPEN_APP -> {
+                val intent = context.packageManager
+                    .getLaunchIntentForPackage(block.value ?: "")
+                intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+            }
+
+            BlockType.DELAY -> {
+                Thread.sleep((block.value?.toLong() ?: 1L) * 1000)
+            }
+
+            BlockType.AUTO_CLICK -> {
+                SmartAccessibilityService.instance?.clickByText(block.value ?: "")
+            }
+        }
+    }
+}
+
+/* -------------------- ACCESSIBILITY SERVICE -------------------- */
+
+class SmartAccessibilityService : AccessibilityService() {
+
+    companion object {
+        var instance: SmartAccessibilityService? = null
+    }
+
+    override fun onServiceConnected() {
+        instance = this
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onInterrupt() {}
+
+    fun clickByText(text: String) {
+        val root = rootInActiveWindow ?: return
+        val nodes = root.findAccessibilityNodeInfosByText(text)
+        for (node in nodes) {
+            if (node.isClickable) {
+                node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                break
+            }
+        }
+    }
+}
+
+/* -------------------- PERMISSION HELPER -------------------- */
+
+object PermissionHelper {
+
+    fun openAccessibility(context: Context) {
+        context.startActivity(
+            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
+
+    fun openUsageAccess(context: Context) {
+        context.startActivity(
+            Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
+}
+
+/* -------------------- MAIN ACTIVITY + UI -------------------- */
+
+class MainActivity : ComponentActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        setContent {
+            MaterialTheme {
+                HomeScreen()
+            }
+        }
+    }
+}
+
+@Composable
+fun HomeScreen() {
+
+    val context = LocalContext.current
+
+    val demoFlow = Flow(
+        name = "Demo Automation",
+        blocks = listOf(
+            Block(BlockType.WIFI_ON),
+            Block(BlockType.DELAY, "2"),
+            Block(BlockType.OPEN_APP, "com.whatsapp")
+        )
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(20.dp)
+    ) {
+
+        Text(
+            text = "SmartFlow",
+            style = MaterialTheme.typography.headlineLarge
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        Button(
+            onClick = {
+                AutomationEngine.run(context, demoFlow)
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("▶ Run Automation")
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Button(
+            onClick = {
+                PermissionHelper.openAccessibility(context)
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Enable Accessibility")
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Button(
+            onClick = {
+                PermissionHelper.openUsageAccess(context)
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Enable Usage Access")
+        }
+    }
+}
